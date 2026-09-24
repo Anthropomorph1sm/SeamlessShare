@@ -27,6 +27,7 @@ public static class Api
         items.MapGet("/{id}/content", Content);
         items.MapPatch("/{id}/text", EditText);
         items.MapPut("/{id}/position", Position);
+        items.MapPut("/positions", Positions);
         items.MapPut("/{id}/pin", Pin);
         items.MapPost("/{id}/ack", Acknowledge);
         items.MapDelete("/{id}", Delete);
@@ -315,6 +316,50 @@ public static class Api
         }
         await db.SaveChangesAsync();
         if (item.Audience == "public") await Notify(hub, item);
+        return Results.Ok();
+    }
+
+    private static async Task<IResult> Positions(HttpContext http, ShareDb db, IHubContext<UpdatesHub> hub, PositionBatchRequest request)
+    {
+        var updates = request.Items;
+        if (updates is null || updates.Length is < 1 or > 200 || updates.Any(x => x is null || string.IsNullOrWhiteSpace(x.Id)) ||
+            updates.Select(x => x.Id).Distinct().Count() != updates.Length)
+            return Bad("Select 1–200 distinct items to move.");
+        if (updates.Any(x => !Finite(x.X, -20000, 20000) || !Finite(x.Y, -20000, 20000) ||
+            !Finite(x.Width, 210, 800) || !Finite(x.Height, 150, 800)))
+            return Bad("Position is out of range.");
+
+        var me = Security.Device(http);
+        var ids = updates.Select(x => x.Id).ToArray();
+        var now = DateTime.UtcNow;
+        var items = await db.Items.Include(x => x.Recipients).Where(x => ids.Contains(x.Id) && x.DeletedAt == null &&
+            (x.ExpiresAt == null || x.ExpiresAt > now) &&
+            (x.Audience == "public" || x.SenderId == me.Id || x.Recipients.Any(r => r.DeviceId == me.Id)))
+            .ToDictionaryAsync(x => x.Id);
+        if (items.Count != updates.Length) return Results.NotFound();
+
+        var privateIds = items.Values.Where(x => x.Audience == "private").Select(x => x.Id).ToArray();
+        var privatePositions = await db.Positions.Where(x => x.DeviceId == me.Id && privateIds.Contains(x.ItemId))
+            .ToDictionaryAsync(x => x.ItemId);
+        foreach (var update in updates)
+        {
+            var item = items[update.Id];
+            if (item.Audience == "public")
+            {
+                item.X = update.X; item.Y = update.Y; item.Width = update.Width; item.Height = update.Height;
+            }
+            else
+            {
+                if (!privatePositions.TryGetValue(item.Id, out var position))
+                {
+                    position = new ItemPosition { ItemId = item.Id, DeviceId = me.Id };
+                    db.Positions.Add(position);
+                }
+                position.X = update.X; position.Y = update.Y; position.Width = update.Width; position.Height = update.Height;
+            }
+        }
+        await db.SaveChangesAsync();
+        if (items.Values.Any(x => x.Audience == "public")) await hub.Clients.Group("approved").SendAsync("changed");
         return Results.Ok();
     }
 

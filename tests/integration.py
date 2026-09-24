@@ -72,6 +72,20 @@ admin.request(f"/admin/devices/{stranger_id}/decision", "POST", {"status": "appr
 assert all(x["id"] != private["id"] for x in stranger.request("/items/?scope=inbox"))
 laptop.request(f"/items/{public['id']}/position", "PUT", {"x": 311, "y": 244, "width": 330, "height": 230})
 assert next(x for x in phone.request("/items/?scope=public") if x["id"] == public["id"])["x"] == 311
+batch = {"items": [
+    {"id": public["id"], "x": 410, "y": 330, "width": 330, "height": 230},
+    {"id": private["id"], "x": 480, "y": 390, "width": 310, "height": 220},
+]}
+laptop.request("/items/positions", "PUT", batch)
+assert next(x for x in phone.request("/items/?scope=public") if x["id"] == public["id"])["x"] == 410
+assert next(x for x in laptop.request("/items/?scope=inbox") if x["id"] == private["id"])["x"] == 480
+assert next(x for x in phone.request("/items/?scope=sent") if x["id"] == private["id"])["x"] != 480
+stranger.request("/items/positions", "PUT", batch, expect=404)
+assert next(x for x in phone.request("/items/?scope=public") if x["id"] == public["id"])["x"] == 410
+bad_batch = {"items": [{**batch["items"][0], "x": 500}, {**batch["items"][1], "x": 20001}]}
+laptop.request("/items/positions", "PUT", bad_batch, expect=400)
+assert next(x for x in phone.request("/items/?scope=public") if x["id"] == public["id"])["x"] == 410
+assert next(x for x in laptop.request("/items/?scope=inbox") if x["id"] == private["id"])["x"] == 480
 laptop.request(f"/items/{public['id']}/text", "PATCH", {"text":"should fail","revision":1}, expect=403)
 laptop.request(f"/items/{public['id']}/pin", "PUT", {"pinned":True}, expect=403)
 laptop.request(f"/items/{private['id']}/ack?state=opened", "POST")
@@ -100,4 +114,4 @@ phone.request("/items/?scope=sent", expect=403)
 phone.request("/items/text", "POST", {"text": "must fail", "audience": "public"}, expect=403)
 assert laptop.request(f"/items/{file_item['id']}/content") == payload
 assert admin.request("/admin/storage")["usedBytes"] > 0
-print("PASS: setup, device access/presence, case-insensitive search, public/private isolation, ownership, layout, edit conflicts, delivery, files/images, limits, expiry, revocation")
+print("PASS: setup, device access/presence, case-insensitive search, public/private isolation, ownership, single/batch layout, edit conflicts, delivery, files/images, limits, expiry, revocation")
