@@ -1,0 +1,9 @@
+.git
+.agents
+.codex
+bin
+obj
+data
+tests
+.env
+*.md
