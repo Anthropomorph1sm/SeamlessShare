@@ -1,13 +1,15 @@
+name: seamlessshare
+
 services:
   app:
-    image: anthropomorphism/seamless-share:${SHARE_IMAGE_TAG:-latest}
+    image: anthropomorphism/seamless-share:latest
     restart: unless-stopped
     environment:
       ASPNETCORE_URLS: http://+:8080
       SHARE_DATA_DIR: /app/data
       SHARE_TRUST_PROXY: "true"
     volumes:
-      - ./data:/app/data
+      - /DATA/AppData/SeamlessShare/data:/app/data
     networks:
       - internal
   caddy:
@@ -15,21 +17,24 @@ services:
     restart: unless-stopped
     depends_on:
       - app
-    environment:
-      SHARE_HOST: ${SHARE_HOST:?Set SHARE_HOST in .env to the server's fixed LAN address or local hostname}
+    # Replace this example IP with your server's LAN IP or local DNS name.
+    # If you change 8443, change it in both --from and ports below.
+    entrypoint: ["caddy"]
+    command:
+      - reverse-proxy
+      - --from
+      - https://192.168.1.50:8443
+      - --to
+      - app:8080
+      - --internal-certs
+      - --disable-redirects
     ports:
-      - "80:80"
-      - "443:443"
+      - "8443:8443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - /DATA/AppData/SeamlessShare/caddy-data:/data
+      - /DATA/AppData/SeamlessShare/caddy-config:/config
     networks:
       - internal
 
 networks:
   internal:
-
-volumes:
-  caddy_data:
-  caddy_config:

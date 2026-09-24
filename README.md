@@ -24,33 +24,67 @@ The share composer supports public posts and private delivery. The admin dashboa
 
 ## Run on a home server
 
-Requirements: a server with Docker Compose, a stable LAN IP address or local DNS name, and ports 80 and 443 available. For the published image, put `compose.hub.yaml`, `Caddyfile`, and `.env.example` in one directory on the server. The `data/` directory and Caddy volumes persist shares, device pairing, and the local HTTPS certificate authority.
+For CasaOS, import the contents of [`compose.hub.yaml`](compose.hub.yaml) as a custom Docker Compose app. It is self-contained: no separate Caddyfile, `.env` file, or directory setup is needed. Before installing, replace `192.168.1.50` in Caddy's `--from` address with your server's fixed LAN IP or local DNS name. The app will be at `https://<server-address>:8443`. Port 8443 avoids CasaOS's usual web port; if it is already in use, change **both** `8443` values in the Compose file. Keep that port reachable from your LAN.
 
-1. Copy `.env.example` to `.env`, then set `SHARE_HOST` to the server's fixed LAN IP or a local DNS name reachable from your devices. `SHARE_IMAGE_TAG=latest` follows the main branch; set it to a published version such as `1.2.3` to pin an upgrade.
-2. Start the published image with `docker compose -f compose.hub.yaml up -d` in that directory. This pulls `anthropomorphism/seamless-share` and Caddy from Docker Hub.
-3. Read the first-run setup token with `docker compose -f compose.hub.yaml logs app` or from `data/setup-token` on the server. Open `https://<SHARE_HOST>` and select **Admin dashboard** to set an administrator password of at least 12 characters. The token is removed after setup.
-4. Open the same address on another device, name that browser, and request access. In the admin dashboard, compare its displayed verification code with the code on the requesting device before approving it.
+```yaml
+name: seamlessshare
 
-To build from the checked-out source instead, use the existing `compose.yaml` with `docker compose up -d --build`. For later Compose commands in this README, omit `-f compose.hub.yaml` when using that source-build setup.
+services:
+  app:
+    image: anthropomorphism/seamless-share:latest
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      SHARE_DATA_DIR: /app/data
+      SHARE_TRUST_PROXY: "true"
+    volumes:
+      - /DATA/AppData/SeamlessShare/data:/app/data
+    networks:
+      - internal
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    # Change this IP to your server's LAN IP or local DNS name.
+    entrypoint: ["caddy"]
+    command:
+      - reverse-proxy
+      - --from
+      - https://192.168.1.50:8443
+      - --to
+      - app:8080
+      - --internal-certs
+      - --disable-redirects
+    ports:
+      - "8443:8443"
+    volumes:
+      - /DATA/AppData/SeamlessShare/caddy-data:/data
+      - /DATA/AppData/SeamlessShare/caddy-config:/config
+    networks:
+      - internal
 
-To update a published installation, back up its data first, then change `SHARE_IMAGE_TAG` in `.env` if you want a different version and run:
-
-```sh
-docker compose -f compose.hub.yaml pull
-docker compose -f compose.hub.yaml up -d
+networks:
+  internal:
 ```
 
-The application container is reachable only inside the Compose network; Caddy is the LAN entry point. Do not expose port 443 to the internet unless you have reviewed the network and authentication setup for that use.
+After CasaOS starts both containers, get the first-run setup token from the **app** container's logs or `/DATA/AppData/SeamlessShare/data/setup-token`. Open the HTTPS address, select **Admin dashboard**, and set an administrator password of at least 12 characters. The token is removed after setup. On another device, open the same address, name that browser, and request access. Compare its verification code with the one in the dashboard before approving it.
+
+The app container is reachable only within the Compose network; Caddy handles LAN HTTPS. Do not forward port 8443 to the internet unless you have reviewed the network and authentication setup for that use.
+
+To update, first back up `/DATA/AppData/SeamlessShare`, then pull and recreate the app through CasaOS. Change the `image:` tag from `latest` to a published version such as `1.2.3` if you want to pin an upgrade. If running the file directly rather than through CasaOS, use `docker compose -f compose.hub.yaml pull && docker compose -f compose.hub.yaml up -d`.
+
+To build from checked-out source instead, copy `.env.example` to `.env`, set `SHARE_HOST`, and run `docker compose up -d --build`. That developer setup uses the separate `Caddyfile` and listens on port 443.
 
 ### Trust the local HTTPS certificate
 
-Caddy creates a local certificate authority for this installation. Export its root certificate after the first start:
+Caddy creates a local certificate authority for this installation. After the first start, copy its root certificate from `/DATA/AppData/SeamlessShare/caddy-data/caddy/pki/authorities/local/root.crt` to each device. You can retrieve it from the CasaOS Files app or copy it on the server:
 
 ```sh
-docker compose -f compose.hub.yaml cp caddy:/data/caddy/pki/authorities/local/root.crt ./data/seamless-root.crt
+sudo cp /DATA/AppData/SeamlessShare/caddy-data/caddy/pki/authorities/local/root.crt /DATA/AppData/SeamlessShare/seamless-root.crt
 ```
 
-Install and trust `data/seamless-root.crt` as a **trusted root certificate** on each device that will open the app. On iOS, install the profile and enable full trust in **Settings → General → About → Certificate Trust Settings**. On Android, Windows, macOS, and Linux, use that device's trusted CA installation flow; some browsers also maintain a separate trust store. Use a stable server address: if its IP or hostname changes, update `.env` and reconnect using the new address. Never bypass a browser certificate warning as a substitute for trusting the root certificate.
+Install and trust `seamless-root.crt` as a **trusted root certificate** on each device that will open the app. On iOS, install the profile and enable full trust in **Settings → General → About → Certificate Trust Settings**. On Android, Windows, macOS, and Linux, use that device's trusted CA installation flow; some browsers also maintain a separate trust store. Use a stable server address: if its IP or hostname changes, update Caddy's `--from` address and reconnect using the new address. Never bypass a browser certificate warning as a substitute for trusting the root certificate.
 
 HTTPS is needed for reliable clipboard access, PWA installation, and phone share integration. Text copy works on a click where the browser permits it. Images can be copied where supported. Files are downloaded; browsers do not offer consistent arbitrary-file clipboard writes. The PWA can appear as a phone share target where the operating system and browser support that feature. If it does not, open the app and paste or select files normally.
 
@@ -65,19 +99,15 @@ Each browser profile is a separate device. Clearing browser data means requestin
 
 ## Data, recovery, and upgrades
 
-The `data/` directory holds the SQLite database, uploaded files, and initial setup token. Caddy's `caddy_data` volume holds its local certificate authority. Back up **both**, preferably while stopped:
+The CasaOS installation keeps the SQLite database, uploads, and Caddy's local certificate authority under `/DATA/AppData/SeamlessShare`. Stop the app in CasaOS and back up that entire directory before upgrades or migration:
 
 ```sh
-docker compose -f compose.hub.yaml down
-
-tar -czf seamless-data.tar.gz data/
-docker run --rm -v seamlessshare_caddy_data:/source:ro -v "$PWD":/backup alpine tar -czf /backup/seamless-caddy-data.tar.gz -C /source .
-docker compose -f compose.hub.yaml up -d
+sudo tar -czf seamlessshare-backup.tar.gz -C /DATA/AppData SeamlessShare
 ```
 
-The Docker volume name may differ if your Compose project name differs; check `docker volume ls`. Restore the database/files and Caddy volume together to preserve pairing and certificate trust. Also retain your administrator password. On first release, SQLite tables are created automatically. Before upgrading a deployed version, back up the data directory and check the release notes for any schema migration.
+Restore the whole directory together to preserve pairing and certificate trust. Also retain your administrator password. For the source-build Compose setup, back up its `data/` directory and `caddy_data` Docker volume instead. On first release, SQLite tables are created automatically. Before upgrading a deployed version, check the release notes for any schema migration.
 
-To reset an administrator password from the server, run `docker compose -f compose.hub.yaml exec app dotnet SeamlessShare.dll --reset-admin-password`. Enter and confirm the new password at the prompt. Existing administrator sessions are signed out. This command does not change paired devices or shared items.
+To reset an administrator password, open a shell in the **app** container from CasaOS and run `dotnet SeamlessShare.dll --reset-admin-password`. Enter and confirm the new password at the prompt. Existing administrator sessions are signed out. This command does not change paired devices or shared items.
 
 ## Docker Hub publishing
 
