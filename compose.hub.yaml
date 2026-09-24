@@ -17,17 +17,22 @@ services:
     restart: unless-stopped
     depends_on:
       - app
-    # Replace this example IP with your server's LAN IP or local DNS name.
-    # If you change 8443, change it in both --from and ports below.
-    entrypoint: ["caddy"]
+    # Replace BOTH example IPs below with your server's LAN IP or local DNS name.
+    entrypoint: ["/bin/sh", "-ec"]
     command:
-      - reverse-proxy
-      - --from
-      - https://192.168.1.50:8443
-      - --to
-      - app:8080
-      - --internal-certs
-      - --disable-redirects
+      - |
+        cat > /tmp/Caddyfile <<'CADDY'
+        {
+          default_sni 192.168.1.50
+          auto_https disable_redirects
+        }
+        https://192.168.1.50:8443 {
+          tls internal
+          encode zstd gzip
+          reverse_proxy app:8080
+        }
+        CADDY
+        exec caddy run --config /tmp/Caddyfile --adapter caddyfile
     ports:
       - "8443:8443"
     volumes:

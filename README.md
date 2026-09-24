@@ -24,7 +24,7 @@ The share composer supports public posts and private delivery. The admin dashboa
 
 ## Run on a home server
 
-For CasaOS, import the contents of [`compose.hub.yaml`](compose.hub.yaml) as a custom Docker Compose app. It is self-contained: no separate Caddyfile, `.env` file, or directory setup is needed. Before installing, replace `192.168.1.50` in Caddy's `--from` address with your server's fixed LAN IP or local DNS name. The app will be at `https://<server-address>:8443`. Port 8443 avoids CasaOS's usual web port; if it is already in use, change **both** `8443` values in the Compose file. Keep that port reachable from your LAN.
+For CasaOS, import the contents of [`compose.hub.yaml`](compose.hub.yaml) as a custom Docker Compose app. It is self-contained: no separate Caddyfile, `.env` file, or directory setup is needed. Before installing, replace **both** example `192.168.1.50` addresses in Caddy's command with your server's fixed LAN IP or local DNS name. The app will be at `https://<server-address>:8443`. Port 8443 avoids CasaOS's usual web port; if it is already in use, change **both** `8443` values in the Compose file. Keep that port reachable from your LAN.
 
 ```yaml
 name: seamlessshare
@@ -46,16 +46,22 @@ services:
     restart: unless-stopped
     depends_on:
       - app
-    # Change this IP to your server's LAN IP or local DNS name.
-    entrypoint: ["caddy"]
+    # Change BOTH IPs below to your server's LAN IP or local DNS name.
+    entrypoint: ["/bin/sh", "-ec"]
     command:
-      - reverse-proxy
-      - --from
-      - https://192.168.1.50:8443
-      - --to
-      - app:8080
-      - --internal-certs
-      - --disable-redirects
+      - |
+        cat > /tmp/Caddyfile <<'CADDY'
+        {
+          default_sni 192.168.1.50
+          auto_https disable_redirects
+        }
+        https://192.168.1.50:8443 {
+          tls internal
+          encode zstd gzip
+          reverse_proxy app:8080
+        }
+        CADDY
+        exec caddy run --config /tmp/Caddyfile --adapter caddyfile
     ports:
       - "8443:8443"
     volumes:
@@ -67,6 +73,8 @@ services:
 networks:
   internal:
 ```
+
+In CasaOS, publish only Caddy's `8443` port and set the app's Web UI link to `https://<server-address>:8443`. Do not publish or open the app container's internal `8080` port directly. Keep `ASPNETCORE_URLS` and Caddy's `reverse_proxy` target on that same internal port. A direct `http://<server-address>:8080` visit cannot retain the production login cookie, so it can appear to accept the password while leaving you signed out. The inline Caddy configuration sets `default_sni` so browsers connecting to a LAN IP through Docker receive the correct certificate.
 
 After CasaOS starts both containers, get the first-run setup token from the **app** container's logs or `/DATA/AppData/SeamlessShare/data/setup-token`. Open the HTTPS address, select **Admin dashboard**, and set an administrator password of at least 12 characters. The token is removed after setup. On another device, open the same address, name that browser, and request access. Compare its verification code with the one in the dashboard before approving it.
 
@@ -84,7 +92,9 @@ Caddy creates a local certificate authority for this installation. After the fir
 sudo cp /DATA/AppData/SeamlessShare/caddy-data/caddy/pki/authorities/local/root.crt /DATA/AppData/SeamlessShare/seamless-root.crt
 ```
 
-Install and trust `seamless-root.crt` as a **trusted root certificate** on each device that will open the app. On iOS, install the profile and enable full trust in **Settings → General → About → Certificate Trust Settings**. On Android, Windows, macOS, and Linux, use that device's trusted CA installation flow; some browsers also maintain a separate trust store. Use a stable server address: if its IP or hostname changes, update Caddy's `--from` address and reconnect using the new address. Never bypass a browser certificate warning as a substitute for trusting the root certificate.
+Install and trust `seamless-root.crt` as a **trusted root certificate** on each device that will open the app. On iOS, install the profile and enable full trust in **Settings → General → About → Certificate Trust Settings**. On Android, Windows, macOS, and Linux, use that device's trusted CA installation flow; some browsers also maintain a separate trust store. Use a stable server address: if its IP or hostname changes, update both IPs in Caddy's inline configuration and reconnect using the new address. Never bypass a browser certificate warning as a substitute for trusting the root certificate.
+
+If Firefox reports `SSL_ERROR_INTERNAL_ERROR_ALERT` for a LAN IP, make sure Caddy is using the inline configuration above, including `default_sni`, with both addresses set to the LAN IP. The older `caddy reverse-proxy --from ...` command can fail to select a certificate behind Docker networking. This happens before certificate trust can be checked; installing the root certificate alone will not fix it.
 
 HTTPS is needed for reliable clipboard access, PWA installation, and phone share integration. Text copy works on a click where the browser permits it. Images can be copied where supported. Files are downloaded; browsers do not offer consistent arbitrary-file clipboard writes. The PWA can appear as a phone share target where the operating system and browser support that feature. If it does not, open the app and paste or select files normally.
 

@@ -376,7 +376,9 @@ document.addEventListener('submit', async event=>{
     if(form.id==='admin-auth-form'){
       const setup=s.admin?.setupRequired;
       await api(setup?'/admin/setup':'/admin/login',{method:'POST',body:setup?{token:data.get('token'),password:data.get('password')}:{password:data.get('password')}});
-      await openAdmin();toast('Administrator authenticated.');
+      await openAdmin();
+      if(!s.admin?.authenticated)throw new Error('Admin session was not retained. Open the app through its HTTPS address and allow cookies.');
+      toast('Administrator authenticated.');
     }
     if(form.id==='settings-form'){
       await api('/admin/storage',{method:'PUT',body:{maxFileBytes:Number(data.get('maxFileMb'))*1e6,maxTotalBytes:Number(data.get('maxTotalGb'))*1e9,retentionDays:Number(data.get('retentionDays'))}});

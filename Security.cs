@@ -31,6 +31,9 @@ public static class Security
         MaxAge = lifetime
     };
 
+    public static bool CanIssueSessionCookie(HttpContext http) =>
+        http.Request.IsHttps || http.RequestServices.GetRequiredService<IHostEnvironment>().IsDevelopment();
+
     public static async Task<Device?> CurrentDevice(HttpContext http, ShareDb db)
     {
         if (!http.Request.Cookies.TryGetValue(DeviceCookie, out var value) || string.IsNullOrWhiteSpace(value)) return null;

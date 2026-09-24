@@ -1,3 +1,7 @@
+{
+    default_sni {$SHARE_HOST}
+}
+
 https://{$SHARE_HOST} {
     tls internal
     encode zstd gzip

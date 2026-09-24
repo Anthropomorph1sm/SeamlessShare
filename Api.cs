@@ -52,6 +52,7 @@ public static class Api
 
     private static async Task<IResult> Enroll(HttpContext http, ShareDb db, EnrollmentRequest request)
     {
+        if (!Security.CanIssueSessionCookie(http)) return Bad("Open the app over HTTPS before registering this device.");
         var existing = await Security.CurrentDevice(http, db);
         if (existing is not null && existing.Status is "pending" or "approved") return Results.Conflict(new { error = "This browser already has a registration." });
         var name = request.Name.Trim();
@@ -70,6 +71,7 @@ public static class Api
 
     private static async Task<IResult> Setup(HttpContext http, ShareDb db, Bootstrap boot, SetupRequest request)
     {
+        if (!Security.CanIssueSessionCookie(http)) return Bad("Open the app over HTTPS through Caddy before setting up the administrator.");
         if (await db.Admins.AnyAsync()) return Results.Conflict(new { error = "Admin setup is complete." });
         if (!boot.CheckSetupToken(request.Token)) return Results.Unauthorized();
         if (request.Password.Length < 12) return Bad("Use an admin password of at least 12 characters.");
@@ -84,6 +86,7 @@ public static class Api
 
     private static async Task<IResult> Login(HttpContext http, ShareDb db, LoginRequest request)
     {
+        if (!Security.CanIssueSessionCookie(http)) return Bad("Open the app over HTTPS through Caddy before signing in as administrator.");
         var admin = await db.Admins.FindAsync(1);
         if (admin is null) return Results.Conflict(new { error = "Admin setup required." });
         if (request.Password.Length is < 1 or > 1024 || !Security.EqualsSecret(admin.PasswordHash, Security.PasswordHash(request.Password, Convert.FromBase64String(admin.Salt))))
