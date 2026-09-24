@@ -115,5 +115,7 @@ public sealed record RenameRequest(string Name);
 public sealed record TextRequest(string Text, string? Title, string Audience, string[]? Recipients);
 public sealed record EditTextRequest(string Text, string? Title, long Revision);
 public sealed record PositionRequest(double X, double Y, double Width, double Height);
+public sealed record PositionUpdate(string Id, double X, double Y, double Width, double Height);
+public sealed record PositionBatchRequest(PositionUpdate[] Items);
 public sealed record PinRequest(bool Pinned);
 public sealed record SettingsRequest(long MaxFileBytes, long MaxTotalBytes, int RetentionDays);

@@ -6,6 +6,22 @@ The backend is ASP.NET Core 10 with SQLite and SignalR. The browser UI is depend
 
 The current REST API contract is available at `/openapi/v1.json` on a running server. Client device permissions still apply to API calls.
 
+## Screenshots
+
+These screenshots use synthetic sample content. The public canvas holds text, images, and files from approved devices.
+
+![Public board with example shares](docs/screenshots/public-board.jpg)
+
+Drag across empty space to select several cards, then drag any selected card's header to move the group.
+
+![Two cards selected on the canvas](docs/screenshots/multi-select.jpg)
+
+The share composer supports public posts and private delivery. The admin dashboard controls device access and server storage.
+
+![New share composer](docs/screenshots/new-share.jpg)
+
+![Admin dashboard with a pending device request](docs/screenshots/admin-dashboard.jpg)
+
 ## Run on a home server
 
 Requirements: a server with Docker Compose, a stable LAN IP address or local DNS name, and port 443 available. Docker downloads the .NET and Caddy images during the first build.
@@ -34,7 +50,7 @@ HTTPS is needed for reliable clipboard access, PWA installation, and phone share
 - **Public board:** every approved device can read all public items and move/resize their cards. Only the sender can edit text, pin, or delete; the administrator can delete any item.
 - **Private delivery:** select one or more approved recipient devices. Only the sender and those recipients can retrieve the content through the app. Queued items remain on the server while a target device is offline. The sender sees queued, available, and opened states.
 - **Expiry:** items expire after seven days by default. The sender can pin an item indefinitely or unpin it to start a fresh retention period. The dashboard can change retention, per-file limit, and total storage capacity. Defaults are 1 GB per file and 20 GB total.
-- **Canvas:** drag a card by its header and resize it from the lower-right corner. The newest card starts on top; selecting a card brings it forward. Drag empty canvas space to select all cards in a rectangle, or Ctrl/Command-click cards to add to a selection. Delete (Backspace on some keyboards) removes selected shares sent from this device after confirmation. The wheel scrolls vertically; Shift + wheel scrolls horizontally. Use Space + drag or the middle mouse button to pan; middle-click paste is disabled in the app. Touch drag pans on touch devices. Right-click empty canvas space to add a share at that position. Pasting text or files on the public board shares them immediately without opening the composer. Mobile defaults to the list view. The search box filters the current view without case sensitivity. Text and image card bodies copy on click; file cards download on click, and image cards have a separate download button. The approved-device indicator is green while a device is connected and grey when offline.
+- **Canvas:** drag a card by its header and resize it from the lower-right corner. The newest card starts on top; selecting a card brings it forward. Drag empty canvas space to select all cards in a rectangle, or Ctrl/Command-click cards to add to a selection. Drag the header of any selected card to move the entire selection together. Delete (Backspace on some keyboards) removes selected shares sent from this device after confirmation. The wheel scrolls vertically; Shift + wheel scrolls horizontally. Use Space + drag or the middle mouse button to pan; middle-click paste is disabled in the app. Touch drag pans on touch devices. Right-click empty canvas space to add a share at that position. Pasting text or files on the public board shares them immediately without opening the composer. Mobile defaults to the list view. The search box filters the current view without case sensitivity. Text and image card bodies copy on click; file cards download on click, and image cards have a separate download button. The approved-device indicator is green while a device is connected and grey when offline.
 
 Each browser profile is a separate device. Clearing browser data means requesting approval again. Administrators can revoke a device at any time. The home server is trusted with readable files and text; private delivery controls app access but is not end-to-end encryption.
 
@@ -43,7 +59,7 @@ Each browser profile is a separate device. Clearing browser data means requestin
 The `data/` directory holds the SQLite database, uploaded files, and initial setup token. Caddy's `caddy_data` volume holds its local certificate authority. Back up **both**, preferably while stopped:
 
 ```sh
-docker compose down4. Open the same address on another device, name that browser, and request access. In the admin dashboard, compare its displayed verification code with the code on the requesting device before approving it.
+docker compose down
 
 tar -czf seamless-data.tar.gz data/
 docker run --rm -v seamlessshare_caddy_data:/source:ro -v "$PWD":/backup alpine tar -czf /backup/seamless-caddy-data.tar.gz -C /source .
