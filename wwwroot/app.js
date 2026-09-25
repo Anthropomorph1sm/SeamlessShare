@@ -144,6 +144,7 @@ function renderShell() {
       <div class="spacer"></div><button class="tool-btn view-toggle ${layout==='list'?'active':''}" data-action="layout" data-layout="list" title="List view">≡</button><button class="tool-btn view-toggle ${layout==='canvas'?'active':''}" data-action="layout" data-layout="canvas" title="Canvas view">▦</button>
       <button class="tool-btn primary" data-action="compose">+ NEW SHARE</button></div>
       ${layout==='canvas' ? `<div class="canvas-viewport" id="viewport"><div class="canvas-grid"><div class="canvas-guide caps">+ · · · SEAMLESS SPACE / ${String(total).padStart(3,'0')} ITEMS · · · +</div>${s.items.map((item,index) => note(item,index)).join('')}</div>${s.items.length===0?empty():''}<div class="canvas-axis caps">X ${Math.round(s.tx)} / Y ${Math.round(s.ty)}</div><div class="canvas-actions">${s.more?'<button data-action="older">LOAD OLDER</button>':''}<button data-action="zoom-out" aria-label="Zoom out">−</button><button data-action="zoom-reset">${Math.round(s.zoom*100)}%</button><button data-action="zoom-in" aria-label="Zoom in">+</button></div>${s.contextMenu ? `<div class="canvas-context-menu" role="menu" style="left:${s.contextMenu.x}px;top:${s.contextMenu.y}px"><button role="menuitem" data-action="compose-here">+ ADD SHARE HERE</button></div>` : ''}</div>` : `<div class="list-view">${s.items.length?`<div class="list-grid">${s.items.map((item,index)=>note(item,index)).join('')}</div>${s.more?'<button class="tool-btn" data-action="older" style="margin-top:16px">LOAD OLDER ↓</button>':''}`:empty()}</div>`}
+      <button class="paste-fab primary${layout==='canvas'?' above-actions':''}" data-action="quick-paste" title="Paste clipboard to the public board" aria-label="Paste clipboard to the public board">PASTE</button>
     </main><footer class="statusbar"><span>◉ &nbsp; ${online?'SYSTEM ONLINE':'WAITING FOR NETWORK'}</span><span>${total} ITEMS</span><span id="selection-count">${s.selectedIds.size?`${s.selectedIds.size} SELECTED · DELETE TO REMOVE`:''}</span><span class="right">HTTPS / APPROVED DEVICES ONLY</span></footer>
   </div>`;
 }
@@ -328,6 +329,42 @@ async function uploadFile(file,audience,recipients) {
     xhr.send(file);
   });
 }
+function pasteFileName(type){const ext=(type.split('/')[1]||'bin').split('+')[0];return `pasted-${Date.now()}.${ext}`;}
+async function readClipboard(){
+  if(navigator.clipboard?.read){
+    try{
+      const items=await navigator.clipboard.read();
+      const files=[];let text='';
+      for(const item of items)for(const type of item.types){
+        const blob=await item.getType(type);
+        if(type==='text/plain'){if(!text)text=await blob.text();continue;}
+        files.push(new File([blob],pasteFileName(type),{type}));
+      }
+      if(files.length)return{files};
+      if(text.trim())return{text:text.trim()};
+    }catch(error){if(error?.name!=='NotAllowedError')console.warn('Clipboard read failed:',error);}
+  }
+  if(navigator.clipboard?.readText){
+    try{const text=(await navigator.clipboard.readText()).trim();if(text)return{text};}catch(error){console.warn('Clipboard text read failed:',error);}
+  }
+  return null;
+}
+async function quickShare(){
+  if(!isApproved())return;
+  const payload=await readClipboard();
+  if(!payload){toast('Nothing on the clipboard, or access was blocked. Use + NEW SHARE instead.',true);return;}
+  try{
+    if(payload.files){
+      toast(`Sharing ${payload.files.length} pasted ${payload.files.length===1?'file':'files'}...`);
+      for(const file of payload.files){const item=await uploadFile(file,'public',[]);if(item?.id)focusNote(item.id);}
+    }else{
+      const item=await api('/items/text',{method:'POST',body:{text:payload.text,audience:'public',recipients:[]}});
+      if(item?.id)focusNote(item.id);
+    }
+    await refresh();
+    toast(payload.files?'Pasted files shared.':'Pasted text shared.');
+  }catch(error){handleError(error);await refresh();}
+}
 function handleError(error) { toast(error.message||String(error),true); }
 
 document.addEventListener('click', async event => {
@@ -338,6 +375,7 @@ document.addEventListener('click', async event => {
   try {
     if(action==='close-modal'){closeModal();return;}
     if(action==='check-status'){await checkStatus();return;}
+    if(action==='quick-paste'){await quickShare();return;}
     if(action==='admin'){await openAdmin();return;}
     if(action==='compose'||action==='compose-here'){
       s.composePosition=action==='compose-here'&&s.contextMenu?{x:s.contextMenu.boardX,y:s.contextMenu.boardY}:null;
