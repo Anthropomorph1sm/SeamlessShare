@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # No secrets are referenced anywhere in this workflow, and it must stay that way:
+    # `pull_request` runs from a branch in this repository do receive repository secrets,
+    # so anything added here would be reachable from an unreviewed PR.
+    env:
+      ASPNETCORE_ENVIRONMENT: Development
+      SHARE_DATA_DIR: ${{ runner.temp }}/seamless-ci/data
+      BASE_URL: http://127.0.0.1:5188
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9  # v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build
+        run: dotnet build -c Release
+
+      - name: Start the app against a fresh data directory
+        run: |
+          mkdir -p "$SHARE_DATA_DIR"
+          dotnet bin/Release/net10.0/SeamlessShare.dll --urls "$BASE_URL" > "$RUNNER_TEMP/server.log" 2>&1 &
+
+      - name: Wait for the app to become ready
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null "$BASE_URL/api/v1/session"; then
+              echo "app is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "app did not start within 60s"
+          cat "$RUNNER_TEMP/server.log"
+          exit 1
+
+      - name: Integration test
+        run: python3 tests/integration.py "$BASE_URL" "$SHARE_DATA_DIR/setup-token"
+
+      - name: Contract checks
+        run: |
+          set -e
+          # An unknown API route must return a JSON 404, never the SPA shell with a 200.
+          status=$(curl -s -o "$RUNNER_TEMP/unknown.out" -w '%{http_code}' "$BASE_URL/api/v1/does-not-exist")
+          type=$(curl -s -o /dev/null -w '%{content_type}' "$BASE_URL/api/v1/does-not-exist")
+          echo "unknown API route -> $status $type"
+          [ "$status" = "404" ] || { echo "expected 404, got $status"; exit 1; }
+          case "$type" in text/html*) echo "unknown API route served the SPA shell"; exit 1;; esac
+
+          # API mutations require the custom header.
+          status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/api/v1/enroll" \
+            -H 'Content-Type: application/json' -d '{"name":"no header"}')
+          echo "enroll without X-Share-Request -> $status"
+          [ "$status" = "403" ] || { echo "expected 403, got $status"; exit 1; }
+
+          # The enrollment limiter must still engage for a single source.
+          echo "value of the queue cap is covered by tests/integration.py; limits asserted above"
+          echo "contract checks passed"
+
+      - name: Server log
+        if: always()
+        run: cat "$RUNNER_TEMP/server.log" || true

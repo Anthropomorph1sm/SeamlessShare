@@ -1,0 +1,4 @@
+# Any change here changes what runs with release credentials (the Docker Hub token is
+# an environment secret on the `DockerHub` environment, which requires review before a
+# run may use it). Keep this scoped so workflow edits cannot be merged unreviewed.
+/.github/ @Anthropomorph1sm
