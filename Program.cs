@@ -29,6 +29,11 @@ var app = builder.Build();
 if (Environment.GetEnvironmentVariable("SHARE_TRUST_PROXY") == "true")
 {
     // Only enable behind a trusted reverse proxy. The Compose deployment does not expose this app directly.
+    // The known-proxy lists are cleared because they cannot be pre-seeded for an arbitrary Compose network.
+    // That is safe only because ForwardedHeadersOptions.ForwardLimit defaults to 1, so just the rightmost
+    // entry is used — which is the value the reverse proxy wrote. Caddy replaces X-Forwarded-For unless
+    // trusted_proxies is set, so a client-supplied value never reaches this middleware. Any deployment that
+    // publishes the app's port directly loses that protection and must not set SHARE_TRUST_PROXY at all.
     var forwarded = new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto };
     forwarded.KnownIPNetworks.Clear();
     forwarded.KnownProxies.Clear();
@@ -64,6 +69,9 @@ app.UseStaticFiles();
 Api.Map(app);
 app.MapOpenApi("/openapi/{documentName}.json");
 app.MapHub<UpdatesHub>("/hubs/updates");
+// Unknown API routes must not fall through to the SPA shell: a typo'd or removed endpoint would
+// otherwise answer 200 text/html and quietly look like success to any client or script.
+app.MapFallback("/api/{**rest}", () => Results.NotFound(new { error = "Unknown API endpoint." }));
 app.MapFallbackToFile("index.html");
 
 using (var scope = app.Services.CreateScope())
