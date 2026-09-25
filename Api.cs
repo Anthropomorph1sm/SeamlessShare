@@ -8,6 +8,11 @@ namespace SeamlessShare;
 
 public static class Api
 {
+    // A per-IP limiter bounds one source, not the queue: many sources can still pile requests into the
+    // dashboard. Cap the queue itself and drop requests nobody acted on after a week.
+    private const int MaxPendingDevices = 50;
+    private const int PendingLifetimeDays = 7;
+
     public static void Map(WebApplication app)
     {
         var api = app.MapGroup("/api/v1");
@@ -57,6 +62,14 @@ public static class Api
         if (existing is not null && existing.Status is "pending" or "approved") return Results.Conflict(new { error = "This browser already has a registration." });
         var name = request.Name.Trim();
         if (name.Length is < 2 or > 60) return Bad("Device name must be 2–60 characters.");
+        var staleBefore = DateTime.UtcNow.AddDays(-PendingLifetimeDays);
+        var stale = await db.Devices.Where(x => x.Status == "pending" && x.CreatedAt < staleBefore).ExecuteDeleteAsync();
+        if (stale > 0) db.Audit.Add(new AuditEvent { Action = "device_requests_expired", Detail = $"{stale} unanswered request(s)" });
+        if (await db.Devices.CountAsync(x => x.Status == "pending") >= MaxPendingDevices)
+        {
+            await db.SaveChangesAsync();
+            return Results.Problem("Too many device requests are already waiting for approval. Try again later, or ask the administrator to clear the queue.", statusCode: 429);
+        }
         var token = Security.RandomToken();
         var device = new Device { Name = name, Code = Security.RandomToken(4).ToUpperInvariant(), CredentialHash = Security.Hash(token) };
         db.Devices.Add(device);
