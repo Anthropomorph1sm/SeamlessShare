@@ -43,7 +43,10 @@ jobs:
 
       - name: Start the app against a fresh data directory
         run: |
-          SHARE_DATA_DIR="$RUNNER_TEMP/seamless-ci/data"
+          # `export` matters: $GITHUB_ENV only reaches SUBSEQUENT steps, so without it `dotnet`
+          # starts with SHARE_DATA_DIR unset and writes the setup token to the default
+          # <contentroot>/data instead, leaving this step's path empty.
+          export SHARE_DATA_DIR="$RUNNER_TEMP/seamless-ci/data"
           echo "SHARE_DATA_DIR=$SHARE_DATA_DIR" >> "$GITHUB_ENV"
           mkdir -p "$SHARE_DATA_DIR"
           dotnet bin/Release/net10.0/SeamlessShare.dll --urls "$BASE_URL" > "$RUNNER_TEMP/server.log" 2>&1 &
