@@ -19,9 +19,13 @@ jobs:
     # No secrets are referenced anywhere in this workflow, and it must stay that way:
     # `pull_request` runs from a branch in this repository do receive repository secrets,
     # so anything added here would be reachable from an unreviewed PR.
+    #
+    # Only literal values here. `jobs.<job_id>.env` permits the github, needs, strategy,
+    # matrix, vars, secrets and inputs contexts but NOT `runner`, so `${{ runner.temp }}`
+    # is a workflow validation error at this level. The data directory is derived from the
+    # $RUNNER_TEMP default variable inside the step instead, then exported via $GITHUB_ENV.
     env:
       ASPNETCORE_ENVIRONMENT: Development
-      SHARE_DATA_DIR: ${{ runner.temp }}/seamless-ci/data
       BASE_URL: http://127.0.0.1:5188
     steps:
       - name: Check out source
@@ -39,6 +43,8 @@ jobs:
 
       - name: Start the app against a fresh data directory
         run: |
+          SHARE_DATA_DIR="$RUNNER_TEMP/seamless-ci/data"
+          echo "SHARE_DATA_DIR=$SHARE_DATA_DIR" >> "$GITHUB_ENV"
           mkdir -p "$SHARE_DATA_DIR"
           dotnet bin/Release/net10.0/SeamlessShare.dll --urls "$BASE_URL" > "$RUNNER_TEMP/server.log" 2>&1 &
 
@@ -74,8 +80,6 @@ jobs:
           echo "enroll without X-Share-Request -> $status"
           [ "$status" = "403" ] || { echo "expected 403, got $status"; exit 1; }
 
-          # The enrollment limiter must still engage for a single source.
-          echo "value of the queue cap is covered by tests/integration.py; limits asserted above"
           echo "contract checks passed"
 
       - name: Server log
